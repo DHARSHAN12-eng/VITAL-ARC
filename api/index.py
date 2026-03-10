@@ -529,8 +529,10 @@ def trigger_reminders():
     
     return jsonify({
         "status": "done",
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "processed": len(reminders),
-        "sent": success_count,
+        "sent_successfully": success_count,
+        "failed": len(reminders) - success_count,
         "errors": errors
     })
 
