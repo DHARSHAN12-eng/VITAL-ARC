@@ -521,7 +521,46 @@ def base_html(title, content, user="", dark=0):
 
 
 # ================================
-# AUTH ROUTES
+# REMINDER TRIGGER (For Cron)
+# ================================
+@app.route("/api/trigger_reminders")
+def trigger_reminders():
+    # This route will be called by your cron job to send pending reminders
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    
+    # Simple logic: Send one pending reminder at a time or all? 
+    # Let's send all pending ones for simplicity.
+    cur.execute("SELECT * FROM reminders WHERE status = 'pending'")
+    reminders = cur.fetchall()
+    
+    success_count = 0
+    errors = []
+    
+    for r in reminders:
+        subject = "VitalArc Health Reminder"
+        body = f"Hello! This is your reminder: {r['message']}"
+        success, error_msg = send_email(r['email'], subject, body)
+        
+        if success:
+            cur.execute("UPDATE reminders SET status = 'sent' WHERE id = ?", (r['id'],))
+            success_count += 1
+        else:
+            errors.append(f"ID {r['id']}: {error_msg}")
+    
+    con.commit()
+    con.close()
+    
+    return jsonify({
+        "status": "done",
+        "processed": len(reminders),
+        "sent": success_count,
+        "errors": errors
+    })
+
+# ================================
+# DEBUG ROUTE
 # ================================
 LOGIN_TMPL = """<!DOCTYPE html><html><head><title>Login - Vital Arc</title>
 <style>*{margin:0;padding:0;box-sizing:border-box;}
