@@ -174,21 +174,28 @@ migrate_db()
 # ================================
 # EMAIL HELPER
 # ================================
-def send_email(to_email, subject, body):
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = GMAIL_USER
-        msg["To"]      = to_email
-        msg.attach(MIMEText(body, "html"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_USER, GMAIL_PASS)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"Email error for {to_email}: {e}")
-        traceback.print_exc()
-        return False
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the full traceback to the terminal
+    print("GLOBAL ERROR CAUGHT:")
+    traceback.print_exc()
+    # Return a JSON response for API calls or a string for browser calls
+    if request.path.startswith("/api/"):
+        return jsonify({"status": "error", "message": str(e), "trace": traceback.format_exc()}), 500
+    return f"<h2>Internal Server Error</h2><pre>{traceback.format_exc()}</pre>", 500
+
+@app.route("/api/debug")
+def debug_route():
+    # Return status of critical variables (masking sensitive info)
+    return jsonify({
+        "CRON_SECRET_SET": os.getenv("CRON_SECRET") is not None,
+        "GMAIL_USER_SET": os.getenv("GMAIL_USER") is not None,
+        "GMAIL_PASS_SET": os.getenv("GMAIL_PASS") is not None,
+        "DB_FILE": DB_FILE,
+        "DB_EXISTS": os.path.exists(DB_FILE),
+        "SESSION_USER": session.get("user"),
+        "SERVER_TIME_UTC": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
 
 # ================================
 # SCHEDULER
@@ -200,7 +207,7 @@ def cron_reminders():
     cron_secret = os.getenv("CRON_SECRET")
     
     if not cron_secret:
-        return jsonify({"status": "error", "message": "CRON_SECRET not configured"}), 500
+        return jsonify({"status": "error", "message": "CRON_SECRET not set on server"}), 500
         
     if secret != cron_secret:
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
@@ -254,28 +261,56 @@ def check_reminders():
         print("Scheduler error:", e)
         traceback.print_exc()
 
+def send_email(to_email, subject, body):
+    if not GMAIL_USER or not GMAIL_PASS:
+        print("Email error: GMAIL_USER or GMAIL_PASS not set in environment.")
+        return False
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = GMAIL_USER
+        msg["To"]      = to_email
+        msg.attach(MIMEText(body, "html"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.sendmail(GMAIL_USER, to_email, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Email error for {to_email}: {e}")
+        traceback.print_exc()
+        return False
+
 @app.route("/api/test_email", methods=["GET"])
 def test_email_route():
     secret = request.args.get("secret")
-    if secret != os.getenv("CRON_SECRET"):
+    cron_secret = os.getenv("CRON_SECRET")
+    
+    if not cron_secret:
+        return jsonify({"status": "error", "message": "CRON_SECRET not set on server"}), 500
+        
+    if secret != cron_secret:
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
     
-    # Try getting the current user's email from session or query
     u = session.get("user")
-    con = get_db()
-    user_row = con.execute("SELECT email FROM users WHERE username=?", (u,)).fetchone() if u else None
-    con.close()
-    
-    target_email = user_row["email"] if user_row and user_row["email"] else os.getenv("GMAIL_USER")
+    target_email = None
+    if u:
+        con = get_db()
+        user_row = con.execute("SELECT email FROM users WHERE username=?", (u,)).fetchone()
+        con.close()
+        if user_row:
+            target_email = user_row["email"]
     
     if not target_email:
-        return jsonify({"status": "error", "message": "No target email found to test"}), 400
+        target_email = os.getenv("GMAIL_USER")
+    
+    if not target_email:
+        return jsonify({"status": "error", "message": "No target email found. Set your profile email or GMAIL_USER."}), 400
         
     res = send_email(target_email, "Vital Arc - Connectivity Test", "Your email configuration is working!")
     if res:
         return jsonify({"status": "success", "message": f"Test email sent to {target_email}"})
     else:
-        return jsonify({"status": "error", "message": "Failed to send email. Check Render logs for trace."})
+        return jsonify({"status": "error", "message": "SMTP Failed. check GMAIL_PASS (App Password) and GMAIL_USER."}), 500
 
 # ================================
 # HELPERS
