@@ -256,43 +256,43 @@ def check_reminders():
         traceback.print_exc()
 
 def send_email(to_email, subject, body):
-    if not GMAIL_USER or not GMAIL_PASS:
-        msg = "Email error: GMAIL_USER or GMAIL_PASS not set in environment."
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        msg = "Email error: RESEND_API_KEY not set in environment."
         print(msg)
         return False, msg
+    
     try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"]    = GMAIL_USER
-        msg["To"]      = to_email
-        msg.attach(MIMEText(body, "html"))
-        # Using smtp.googlemail.com as an alternative which sometimes works better
-        # Try Port 2525 (Alternative) which is often open when 587/465 are blocked
-        with smtplib.SMTP("smtp.gmail.com", 2525, timeout=20) as server:
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_PASS)
-            server.sendmail(GMAIL_USER, to_email, msg.as_string())
-        return True, "Success"
-    except smtplib.SMTPAuthenticationError:
-        err = "Authentication failed. Check your App Password and skip the spaces."
-        print(f"SMTP AUTH ERROR for {to_email}: {err}")
-        return False, err
+        import requests
+        res = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": "Vital Arc <onboarding@resend.dev>",
+                "to": to_email,
+                "subject": subject,
+                "html": body
+            },
+            timeout=20
+        )
+        if res.status_code in [200, 201, 202]:
+            return True, "Success"
+        else:
+            err = f"Resend API error: {res.status_code} - {res.text}"
+            print(err)
+            return False, err
     except Exception as e:
-        err = f"SMTP error: {str(e)}"
+        err = f"Email API error: {str(e)}"
         print(f"Email error for {to_email}: {err}")
         traceback.print_exc()
         return False, err
 
 @app.route("/api/debug", methods=["GET"])
 def debug_route():
-    # Test connectivity to Gmail SMTP
-    connectivity = {}
-    for port in [587, 465, 2525]:
-        try:
-            with socket.create_connection(("smtp.gmail.com", port), timeout=5):
-                connectivity[f"port_{port}"] = "REACHABLE"
-        except Exception as e:
-            connectivity[f"port_{port}"] = f"BLOCKED: {str(e)}"
+    connectivity = "N/A - Using Resend API (HTTP)"
 
     con = get_db()
     try:
@@ -304,10 +304,8 @@ def debug_route():
     con.close()
 
     return jsonify({
-        "GMAIL_USER_SET": bool(GMAIL_USER),
-        "GMAIL_PASS_SET": bool(GMAIL_PASS),
+        "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
         "CRON_SECRET_SET": bool(os.getenv("CRON_SECRET")),
-        "SMTP_CONNECTIVITY": connectivity,
         "DB_STATS": {
             "total_users": users_count,
             "total_reminders": rem_count,
@@ -315,7 +313,7 @@ def debug_route():
         },
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "SERVER_TIME_IST": (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-10_v4_PORT2525"
+        "VAR_DEPLOY_STAMP": "2026-03-10_v5_RESEND_API"
     })
 
 # ================================
