@@ -276,7 +276,9 @@ def send_email(to_email, subject, body):
         msg["From"]    = GMAIL_USER
         msg["To"]      = to_email
         msg.attach(MIMEText(body, "html"))
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+        # Using port 587 with STARTTLS is more standard for cloud environments
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+            server.starttls() 
             server.login(GMAIL_USER, GMAIL_PASS)
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
         return True, "Success"
