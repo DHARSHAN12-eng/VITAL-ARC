@@ -10,9 +10,9 @@ import sqlite3
 import smtplib
 import csv
 import io
-import json
+import socket
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -276,8 +276,8 @@ def send_email(to_email, subject, body):
         msg["From"]    = GMAIL_USER
         msg["To"]      = to_email
         msg.attach(MIMEText(body, "html"))
-        # Using port 587 with STARTTLS is more standard for cloud environments
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+        # Using smtp.googlemail.com as an alternative which sometimes works better
+        with smtplib.SMTP("smtp.googlemail.com", 587, timeout=20) as server:
             server.starttls() 
             server.login(GMAIL_USER, GMAIL_PASS)
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
@@ -291,6 +291,25 @@ def send_email(to_email, subject, body):
         print(f"Email error for {to_email}: {err}")
         traceback.print_exc()
         return False, err
+
+@app.route("/api/debug", methods=["GET"])
+def debug_route():
+    connectivity = {}
+    for port in [587, 465]:
+        try:
+            with socket.create_connection(("smtp.gmail.com", port), timeout=5):
+                connectivity[f"port_{port}"] = "REACHABLE"
+        except Exception as e:
+            connectivity[f"port_{port}"] = f"BLOCKED: {str(e)}"
+
+    return jsonify({
+        "GMAIL_USER_SET": bool(GMAIL_USER),
+        "GMAIL_PASS_SET": bool(GMAIL_PASS),
+        "CRON_SECRET_SET": bool(os.getenv("CRON_SECRET")),
+        "SMTP_CONNECTIVITY": connectivity,
+        "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "SERVER_TIME_IST": (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+    })
 
 # ================================
 # HELPERS
