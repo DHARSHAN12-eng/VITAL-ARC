@@ -2374,3 +2374,8 @@ from wsgi_to_asgi import WsgiToAsgi
 
 handler = WsgiToAsgi(app)
 
+ 
+ i f   _ _ n a m e _ _   = =   ' _ _ m a i n _ _ ' :  
+         p o r t   =   i n t ( o s . e n v i r o n . g e t ( ' P O R T ' ,   5 0 0 0 ) )  
+         a p p . r u n ( h o s t = ' 0 . 0 . 0 . 0 ' ,   p o r t = p o r t )  
+ 
