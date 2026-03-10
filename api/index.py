@@ -245,6 +245,7 @@ def check_reminders():
                 "WHERE (r.remind_date < ? OR (r.remind_date = ? AND r.remind_time <= ?)) AND r.email_sent=0",
                 (d, d, t)).fetchall()
             
+            print(f"DEBUG: Found {len(rows)} matching reminders for {d} {t}")
             for row in rows:
                 rid, uname, msg, email = row["id"], row["username"], row["message"], row["email"]
                 print(f"DEBUG: Found reminder for {uname} ({email}) at {d} {t}")
@@ -294,6 +295,7 @@ def send_email(to_email, subject, body):
 
 @app.route("/api/debug", methods=["GET"])
 def debug_route():
+    # Test connectivity to Gmail SMTP
     connectivity = {}
     for port in [587, 465]:
         try:
@@ -302,11 +304,25 @@ def debug_route():
         except Exception as e:
             connectivity[f"port_{port}"] = f"BLOCKED: {str(e)}"
 
+    con = get_db()
+    try:
+        users_count = con.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
+        rem_count = con.execute("SELECT COUNT(*) as c FROM reminders").fetchone()["c"]
+        pen_count = con.execute("SELECT COUNT(*) as c FROM reminders WHERE email_sent=0").fetchone()["c"]
+    except:
+        users_count = rem_count = pen_count = "Error reading DB"
+    con.close()
+
     return jsonify({
         "GMAIL_USER_SET": bool(GMAIL_USER),
         "GMAIL_PASS_SET": bool(GMAIL_PASS),
         "CRON_SECRET_SET": bool(os.getenv("CRON_SECRET")),
         "SMTP_CONNECTIVITY": connectivity,
+        "DB_STATS": {
+            "total_users": users_count,
+            "total_reminders": rem_count,
+            "pending_reminders": pen_count
+        },
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "SERVER_TIME_IST": (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
     })
