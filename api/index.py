@@ -186,7 +186,8 @@ def send_email(to_email, subject, body):
             server.sendmail(GMAIL_USER, to_email, msg.as_string())
         return True
     except Exception as e:
-        print("Email error:", e)
+        print(f"Email error for {to_email}: {e}")
+        traceback.print_exc()
         return False
 
 # ================================
@@ -218,6 +219,21 @@ def check_reminders():
 # NOTE: BackgroundScheduler is incompatible with Vercel serverless.
 # Use Vercel Cron Jobs instead: add a cron entry in vercel.json that
 # calls a dedicated /api/cron_reminders endpoint on a schedule.
+
+@app.route("/api/cron_reminders", methods=["GET", "POST"])
+def cron_reminders():
+    # Security: check for a secret key in the query string or header
+    secret = request.args.get("secret")
+    cron_secret = os.getenv("CRON_SECRET")
+    
+    if not cron_secret:
+        return jsonify({"status": "error", "message": "CRON_SECRET not configured"}), 500
+        
+    if secret != cron_secret:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+        
+    check_reminders()
+    return jsonify({"status": "success", "message": "Reminders checked"})
 
 # ================================
 # HELPERS
