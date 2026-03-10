@@ -182,38 +182,33 @@ def handle_exception(e):
 # EMAIL HELPER
 # ================================
 def send_email(to_email, subject, body):
-    api_key = os.getenv("RESEND_API_KEY")
-    if not api_key:
-        msg = "Email error: RESEND_API_KEY not set in environment."
+    import smtplib
+    from email.mime.text import MIMEText
+    
+    gmail_user = os.getenv("GMAIL_USER")
+    gmail_pass = os.getenv("GMAIL_PASS")
+    
+    if not gmail_user or not gmail_pass:
+        msg = "Email error: GMAIL_USER or GMAIL_PASS not set."
         print(msg)
         return False, msg
     
     try:
-        import requests
-        res = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "from": "Vital Arc <hello@vital.arc.com>",
-                "to": to_email,
-                "subject": subject,
-                "html": body
-            },
-            timeout=20
-        )
-        if res.status_code in [200, 201, 202]:
-            return True, "Success"
-        else:
-            err = f"Resend API error: {res.status_code} - {res.text}"
-            print(err)
-            return False, err
+        msg = MIMEText(body, 'html')
+        msg['Subject'] = subject
+        msg['From'] = gmail_user
+        msg['To'] = to_email
+        
+        # Using Port 587 with STARTTLS
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+        server.starttls()
+        server.login(gmail_user, gmail_pass)
+        server.send_message(msg)
+        server.quit()
+        return True, "Success"
     except Exception as e:
-        err = f"Email API error: {str(e)}"
+        err = f"SMTP error: {str(e)}"
         print(f"Email error for {to_email}: {err}")
-        traceback.print_exc()
         return False, err
 
 
@@ -580,14 +575,29 @@ def debug_route():
         db_stats['error'] = str(e)
     con.close()
 
+    # Connectivity Check
+    import socket
+    conn_results = {}
+    for port in [587, 465]:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2)
+        try:
+            s.connect(("smtp.gmail.com", port))
+            conn_results[f"port_{port}"] = "OPEN"
+            s.close()
+        except Exception as e:
+            conn_results[f"port_{port}"] = f"BLOCKED: {str(e)}"
+
     return jsonify({
-        "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
+        "GMAIL_USER_SET": bool(os.getenv("GMAIL_USER")),
+        "GMAIL_PASS_SET": bool(os.getenv("GMAIL_PASS")),
+        "SMTP_CONNECTIVITY": conn_results,
         "DB_FILE_PATH": DB_FILE,
         "DB_EXISTS": os.path.exists(DB_FILE),
         "DB_SAMPLES": samples,
         "DB_STATS": db_stats,
         "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-11_v2_FULL_DEBUG"
+        "VAR_DEPLOY_STAMP": "2026-03-11_v3_GMAIL_SMTP"
     })
 
 LOGIN_TMPL = """<!DOCTYPE html><html><head><title>Login - Vital Arc</title>
