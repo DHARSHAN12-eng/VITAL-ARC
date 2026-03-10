@@ -216,31 +216,6 @@ def send_email(to_email, subject, body):
         traceback.print_exc()
         return False, err
 
-@app.route("/api/debug", methods=["GET"])
-def debug_route():
-    connectivity = "N/A - Using Resend API (HTTP)"
-
-    con = get_db()
-    try:
-        users_count = con.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
-        rem_count = con.execute("SELECT COUNT(*) as c FROM reminders").fetchone()["c"]
-        pen_count = con.execute("SELECT COUNT(*) as c FROM reminders WHERE email_sent=0").fetchone()["c"]
-    except:
-        users_count = rem_count = pen_count = "Error reading DB"
-    con.close()
-
-    return jsonify({
-        "RESEND_API_KEY_SET": bool(os.getenv("RESEND_API_KEY")),
-        "CRON_SECRET_SET": bool(os.getenv("CRON_SECRET")),
-        "DB_STATS": {
-            "total_users": users_count,
-            "total_reminders": rem_count,
-            "pending_reminders": pen_count
-        },
-        "SERVER_TIME_UTC": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        "SERVER_TIME_IST": (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d %H:%M:%S"),
-        "VAR_DEPLOY_STAMP": "2026-03-10_v5_RESEND_API"
-    })
 
 # ================================
 # HELPERS
