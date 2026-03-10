@@ -193,33 +193,6 @@ def send_email(to_email, subject, body):
 # ================================
 # SCHEDULER
 # ================================
-def check_reminders():
-    try:
-        now_date = datetime.now().strftime("%Y-%m-%d")
-        now_time = datetime.now().strftime("%H:%M")
-        con = get_db()
-        rows = con.execute(
-            "SELECT r.id,r.username,r.message,u.email FROM reminders r "
-            "JOIN users u ON r.username=u.username "
-            "WHERE r.remind_date=? AND r.remind_time=? AND r.email_sent=0",
-            (now_date, now_time)).fetchall()
-        for row in rows:
-            rid, uname, msg, email = row["id"], row["username"], row["message"], row["email"]
-            if email:
-                body = ("<h2 style='color:#667eea'>Vital Arc Reminder</h2>"
-                        "<p>Hello <b>" + uname + "</b>,</p><p>" + msg + "</p>"
-                        "<p>Stay healthy! Log in to check your heart health today.</p>")
-                if send_email(email, "Vital Arc Reminder", body):
-                    con.execute("UPDATE reminders SET email_sent=1 WHERE id=?", (rid,))
-        con.commit()
-        con.close()
-    except Exception as e:
-        print("Scheduler error:", e)
-
-# NOTE: BackgroundScheduler is incompatible with Vercel serverless.
-# Use Vercel Cron Jobs instead: add a cron entry in vercel.json that
-# calls a dedicated /api/cron_reminders endpoint on a schedule.
-
 @app.route("/api/cron_reminders", methods=["GET", "POST"])
 def cron_reminders():
     # Security: check for a secret key in the query string or header
@@ -233,7 +206,53 @@ def cron_reminders():
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
         
     check_reminders()
-    return jsonify({"status": "success", "message": "Reminders checked"})
+    return jsonify({
+        "status": "success", 
+        "message": "Reminders checked",
+        "server_time_utc": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    })
+
+def check_reminders():
+    try:
+        # Render servers are UTC. Assuming user is IST (UTC+5:30)
+        # We check both UTC and IST to be sure.
+        from datetime import timedelta
+        utc_now = datetime.now()
+        ist_now = utc_now + timedelta(hours=5, minutes=30)
+        
+        con = get_db()
+        
+        # Check for both UTC and IST matches
+        check_times = [
+            (utc_now.strftime("%Y-%m-%d"), utc_now.strftime("%H:%M")),
+            (ist_now.strftime("%Y-%m-%d"), ist_now.strftime("%H:%M"))
+        ]
+        
+        print(f"DEBUG: Checking reminders. UTC: {check_times[0]}, IST: {check_times[1]}")
+        
+        for d, t in check_times:
+            rows = con.execute(
+                "SELECT r.id,r.username,r.message,u.email FROM reminders r "
+                "JOIN users u ON r.username=u.username "
+                "WHERE r.remind_date=? AND r.remind_time=? AND r.email_sent=0",
+                (d, t)).fetchall()
+            
+            for row in rows:
+                rid, uname, msg, email = row["id"], row["username"], row["message"], row["email"]
+                print(f"DEBUG: Found reminder for {uname} ({email}) at {d} {t}")
+                if email:
+                    body = ("<h2 style='color:#667eea'>Vital Arc Reminder</h2>"
+                            "<p>Hello <b>" + uname + "</b>,</p><p>" + msg + "</p>"
+                            "<p>Stay healthy! Log in to check your heart health today.</p>")
+                    if send_email(email, "Vital Arc Reminder", body):
+                        con.execute("UPDATE reminders SET email_sent=1 WHERE id=?", (rid,))
+                        print(f"DEBUG: Email sent to {email}")
+        
+        con.commit()
+        con.close()
+    except Exception as e:
+        print("Scheduler error:", e)
+        traceback.print_exc()
 
 @app.route("/api/test_email", methods=["GET"])
 def test_email_route():
