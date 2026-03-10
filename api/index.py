@@ -1,5 +1,3 @@
-
-
 # ===============================
 # VITAL ARC - HEART HEALTH TRACKER
 # Single Jupyter Notebook Cell
@@ -43,7 +41,7 @@ LOGO_B64 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAYGBgYHBgcIC
 # CONFIGURATION VARIABLES
 # =========================
 DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "heart.csv")
-DB_FILE = "/tmp/heart_app.db"
+DB_FILE = os.path.join(os.path.dirname(__file__), "..", "heart_app.db")
 SECRET_KEY = "heart_secret_2025"
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_PASS = os.getenv("GMAIL_PASS")
@@ -2360,22 +2358,20 @@ document.addEventListener('keydown', e => {{ if(e.key === 'Escape') closePassMod
 
 
 
-# In[ ]:
 
 
 
 
 
 
-# ================================
-# Vercel Serverless Handler
-# ================================
-from wsgi_to_asgi import WsgiToAsgi
 
-handler = WsgiToAsgi(app)
 
- 
- i f   _ _ n a m e _ _   = =   ' _ _ m a i n _ _ ' :  
-         p o r t   =   i n t ( o s . e n v i r o n . g e t ( ' P O R T ' ,   5 0 0 0 ) )  
-         a p p . r u n ( h o s t = ' 0 . 0 . 0 . 0 ' ,   p o r t = p o r t )  
- 
+
+
+
+if __name__ == '__main__':
+
+    port = int(os.environ.get('PORT', 5000))
+
+    app.run(host='0.0.0.0', port=port)
+
