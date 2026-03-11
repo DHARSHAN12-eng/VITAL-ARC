@@ -782,6 +782,8 @@ def dashboard():
         ("/hr_zones",    "💓", "HR Zones",           "linear-gradient(135deg,#ff7675,#d63031)"),
         ("/export_csv",  "⬇️", "Export CSV",         "linear-gradient(135deg,#636e72,#2d3436)"),
         ("/profile",     "👤", "My Profile",         "linear-gradient(135deg,#a29bfe,#764ba2)"),
+        ("/recommendation", "💡", "Recommendations",  "linear-gradient(135deg,#0984e3,#00cec9)"),
+        ("/nearby",      "🏥", "Nearby Hospital",    "linear-gradient(135deg,#e17055,#fab1a0)"),
     ]
 
     feat_html = ""
@@ -882,13 +884,7 @@ def predict():
                     "<option value='1'>Male</option>"
                     "<option value='0'>Female</option>"
                     "</select></div>")
-        if name in ("fbs", "exang"):
-            return ("<div><label class='lbl'>" + label + "</label>"
-                    "<select name='" + name + "' required>"
-                    "<option value=''>Select</option>"
-                    "<option value='1'>Yes</option>"
-                    "<option value='0'>No</option>"
-                    "</select></div>")
+
         step = ' step="0.1"' if name == "oldpeak" else ""
         return ("<div><label class='lbl'>" + label + "</label>"
                 "<input name='" + name + "' type='" + ftype + "' placeholder='" + ph + "'" + step + " required></div>")
@@ -899,10 +895,10 @@ def predict():
         ("cp","Chest Pain Type (0-3)","number","0-3"),
         ("trestbps","Resting BP","number","e.g. 120"),
         ("chol","Cholesterol mg/dl","number","e.g. 200"),
-        ("fbs","Fasting Blood Sugar >120","select",""),
+        ("fbs","Fasting Blood Sugar >120","number","1=Yes, 0=No"),
         ("restecg","Resting ECG (0-2)","number","0-2"),
         ("thalach","Max Heart Rate","number","e.g. 150"),
-        ("exang","Exercise Angina","select",""),
+        ("exang","Exercise Angina","number","1=Yes, 0=No"),
         ("oldpeak","ST Depression","number","e.g. 1.5"),
         ("slope","Slope (0-2)","number","0-2"),
         ("ca","Major Vessels (0-4)","number","0-4"),
@@ -2459,6 +2455,82 @@ document.addEventListener('keydown', e => {{ if(e.key === 'Escape') closePassMod
 
 
 
+
+# ================================
+# RECOMMENDATION
+# ================================
+@app.route("/recommendation")
+def recommendation():
+    if "user" not in session:
+        return redirect("/")
+    u, dark = session["user"], get_dark(session["user"])
+    con = get_db()
+    row = con.execute(
+        "SELECT prediction, age, sex, cp, trestbps, chol, fbs, restecg, thalach, exang, oldpeak, slope, ca, thal "
+        "FROM predictions WHERE username=? ORDER BY id DESC LIMIT 1", (u,)).fetchone()
+    con.close()
+
+    if row:
+        vals = [row["age"], row["sex"], row["cp"], row["trestbps"], row["chol"], row["fbs"], row["restecg"], row["thalach"], row["exang"], row["oldpeak"], row["slope"], row["ca"], row["thal"]]
+        foods, exercises = get_recommendations(vals, row["prediction"])
+        risk_str = "HIGH RISK" if row["prediction"] == 1 else "LOW RISK"
+        clr = "#d63031" if row["prediction"] == 1 else "#00b894"
+        
+        foods_html = "".join("<li style='margin-bottom:6px;'>" + f + "</li>" for f in foods)
+        exercises_html = "".join("<li style='margin-bottom:6px;'>" + e + "</li>" for e in exercises)
+        
+        content = (
+            "<div class='card'>"
+            "<h3 style='color:var(--accent);margin-bottom:14px;'>Personalized Recommendations</h3>"
+            "<p style='margin-bottom:14px;'>Based on your latest prediction: <strong style='color:" + clr + ";'>" + risk_str + "</strong></p>"
+            "<h4 style='color:var(--accent);margin-top:20px;margin-bottom:10px;'>Recommended Foods:</h4>"
+            "<ul style='margin-left:20px;'>" + foods_html + "</ul>"
+            "<h4 style='color:var(--accent);margin-top:20px;margin-bottom:10px;'>Recommended Exercises:</h4>"
+            "<ul style='margin-left:20px;'>" + exercises_html + "</ul>"
+            "</div>"
+        )
+    else:
+        content = "<div class='card'><p>No prediction data found. Please run a prediction first.</p></div>"
+        
+    return base_html("Recommendations", content, u, dark)
+
+
+# ================================
+# NEARBY HOSPITAL
+# ================================
+@app.route("/nearby")
+def nearby():
+    if "user" not in session:
+        return redirect("/")
+    u, dark = session["user"], get_dark(session["user"])
+    
+    content = (
+        "<div class='card' style='text-align:center; padding: 40px;'>"
+        "<h3 style='color:var(--accent);margin-bottom:14px;'>Find Nearby Hospitals</h3>"
+        "<p style='color:var(--sub);margin-bottom:20px;'>We will use your live location to find hospitals near you.</p>"
+        "<button onclick='findHospitals()' class='btn' style='font-size:16px;padding:14px 28px;'>Find Hospitals on Maps</button>"
+        "<div id='loc-status' style='margin-top:20px; font-weight:bold; color:var(--accent);'></div>"
+        "</div>"
+        "<script>"
+        "function findHospitals() {"
+        "  const st = document.getElementById('loc-status');"
+        "  st.innerText = 'Locating...';"
+        "  if (navigator.geolocation) {"
+        "    navigator.geolocation.getCurrentPosition(function(pos) {"
+        "      st.innerText = 'Location found! Redirecting to Maps...';"
+        "      const lat = pos.coords.latitude;"
+        "      const lon = pos.coords.longitude;"
+        "      window.open('https://www.google.com/maps/search/hospitals/@' + lat + ',' + lon + ',14z/data=!3m1!4b1', '_blank');"
+        "    }, function(err) {"
+        "      st.innerText = 'Geolocation access denied or failed (' + err.message + '). Please enable location services.';"
+        "    });"
+        "  } else {"
+        "    st.innerText = 'Geolocation is not supported by this browser.';"
+        "  }"
+        "}"
+        "</script>"
+    )
+    return base_html("Nearby Hospitals", content, u, dark)
 
 if __name__ == '__main__':
 
