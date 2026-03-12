@@ -41,175 +41,69 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "..", "heart_app.db")
 SECRET_KEY = "heart_secret_2025"
 app.secret_key = SECRET_KEY
 
-print("--- [STARTUP] Loading data and training model... ---")
-df = pd.read_csv(DATA_PATH)
-X  = df.drop("target", axis=1)
-y  = df["target"]
-X  = X.fillna(X.median())
-MODEL     = LogisticRegression(max_iter=3000)
-MODEL.fit(X, y)
-COL_NAMES = list(X.columns)
-print("--- [STARTUP] Model training complete. ---")
+# Global startup flag
+_app_ready = False
 
-# ================================
-# DATABASE SETUP
-# ================================
-import os as _os
-print("--- [STARTUP] Checking database schema... ---")
-if _os.path.exists(DB_FILE):
-    _c = None
+def ensure_startup():
+    global _app_ready, MODEL, COL_NAMES
+    if _app_ready:
+        return
+    
+    print("--- [LAZY STARTUP] Starting heavy initialization... ---")
+    
+    # 1. Train Model
     try:
-        import sqlite3 as _sq
-        _c = _sq.connect(DB_FILE)
-        # Check for all required columns to avoid migration issues
-        _c.execute("SELECT email_sent, remind_date, remind_time, message FROM reminders LIMIT 1")
-        _c.execute("SELECT email, dark_mode, height_cm, weight_kg, dob, phone FROM users LIMIT 1")
-        print("--- [STARTUP] Database schema OK. ---")
-    except Exception as _e:
-        print(f"--- [STARTUP] Old/invalid database detected: {_e} ---")
-        if _c: 
-            try: _c.close()
-            except: pass
-        try:
-            _os.remove(DB_FILE)
-            print("--- [STARTUP] Old heart_app.db deleted. ---")
-        except Exception as _re:
-            print(f"--- [STARTUP] Failed to remove old DB: {_re} ---")
-    finally:
-        if _c:
-            try: _c.close()
-            except: pass
-else:
-    print("--- [STARTUP] No database file found. It will be created. ---")
-
-def get_db():
-    con = sqlite3.connect(DB_FILE, check_same_thread=False)
-    con.row_factory = sqlite3.Row
-    return con
-
-def init_db():
-    con = get_db()
-    con.executescript("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT,
-        email TEXT DEFAULT '',
-        dark_mode INTEGER DEFAULT 0,
-        height_cm REAL DEFAULT 0,
-        weight_kg REAL DEFAULT 0,
-        dob TEXT DEFAULT '',
-        phone TEXT DEFAULT '',
-        photo TEXT DEFAULT '',
-        last_login TEXT DEFAULT ''
-    );
-    CREATE TABLE IF NOT EXISTS predictions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, timestamp TEXT, prediction INTEGER, risk_level TEXT,
-        age REAL, sex REAL, cp REAL, trestbps REAL, chol REAL,
-        fbs REAL, restecg REAL, thalach REAL, exang REAL,
-        oldpeak REAL, slope REAL, ca REAL, thal REAL
-    );
-    CREATE TABLE IF NOT EXISTS reminders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, remind_date TEXT, remind_time TEXT,
-        message TEXT, email_sent INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS water_intake (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, log_date TEXT, glasses INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS medications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, med_name TEXT, dosage TEXT,
-        frequency TEXT, active INTEGER DEFAULT 1
-    );
-    CREATE TABLE IF NOT EXISTS health_goals (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, goal_type TEXT, target REAL, current REAL, unit TEXT
-    );
-    CREATE TABLE IF NOT EXISTS bmi_records (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, timestamp TEXT, weight_kg REAL,
-        height_cm REAL, bmi REAL, category TEXT
-    );
-    CREATE TABLE IF NOT EXISTS site_visits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        visit_date TEXT, 
-        visit_count INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS user_logins (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT, login_time TEXT
-    );
-    CREATE TABLE IF NOT EXISTS admin_users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        password TEXT
-    );
-    """)
-    con.commit()
-    con.close()
-
-init_db()
-
-def setup_admin():
-    try:
-        con = get_db()
-        # Add default admin if not exists (username: admin, password: adminpassword123)
-        admin_pass = generate_password_hash("adminpassword123")
-        con.execute("INSERT OR IGNORE INTO admin_users (username, password) VALUES (?, ?)", ("admin", admin_pass))
-        con.commit()
-        con.close()
+        print("--- [LAZY STARTUP] Loading data and training model... ---")
+        temp_df = pd.read_csv(DATA_PATH)
+        temp_X  = temp_df.drop("target", axis=1)
+        temp_y  = temp_df["target"]
+        temp_X  = temp_X.fillna(temp_X.median())
+        
+        temp_model = LogisticRegression(max_iter=3000)
+        temp_model.fit(temp_X, temp_y)
+        
+        MODEL = temp_model
+        COL_NAMES = list(temp_X.columns)
+        print("--- [LAZY STARTUP] Model training complete. ---")
     except Exception as e:
-        print("Admin setup error:", e)
+        print(f"--- [LAZY STARTUP] ERROR TRAINING MODEL: {e} ---")
+        # Keep placeholders if it fails
+        if 'MODEL' not in globals():
+            MODEL = None
+            COL_NAMES = []
 
-setup_admin()
+    # 2. Database Checks
+    try:
+        print("--- [LAZY STARTUP] Checking database... ---")
+        if _os.path.exists(DB_FILE):
+            _c = None
+            try:
+                import sqlite3 as _sq
+                _c = _sq.connect(DB_FILE)
+                _c.execute("SELECT id FROM users LIMIT 1")
+                print("--- [LAZY STARTUP] DB File exists and is readable. ---")
+            except Exception as _e:
+                print(f"--- [LAZY STARTUP] DB Check failed: {_e}. Recreating... ---")
+                if _c: _c.close()
+                try: _os.remove(DB_FILE)
+                except: pass
+            finally:
+                if _c: _c.close()
 
-def migrate_db():
-    con = get_db()
-    migrations = [
-        "ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''",
-        "ALTER TABLE users ADD COLUMN dark_mode INTEGER DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN height_cm REAL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN weight_kg REAL DEFAULT 0",
-        "ALTER TABLE users ADD COLUMN dob TEXT DEFAULT ''",
-        "ALTER TABLE users ADD COLUMN phone TEXT DEFAULT ''",
-        "ALTER TABLE users ADD COLUMN photo TEXT DEFAULT ''",
-        "ALTER TABLE users ADD COLUMN last_login TEXT DEFAULT ''",
-        "ALTER TABLE reminders ADD COLUMN remind_date TEXT DEFAULT ''",
-        "ALTER TABLE reminders ADD COLUMN remind_time TEXT DEFAULT ''",
-        "ALTER TABLE reminders ADD COLUMN message TEXT DEFAULT ''",
-        "ALTER TABLE reminders ADD COLUMN email_sent INTEGER DEFAULT 0",
-        "ALTER TABLE predictions ADD COLUMN risk_level TEXT DEFAULT ''",
-        "ALTER TABLE water_intake ADD COLUMN log_date TEXT DEFAULT ''",
-        "ALTER TABLE water_intake ADD COLUMN glasses INTEGER DEFAULT 0",
-        "ALTER TABLE medications ADD COLUMN med_name TEXT DEFAULT ''",
-        "ALTER TABLE medications ADD COLUMN dosage TEXT DEFAULT ''",
-        "ALTER TABLE medications ADD COLUMN frequency TEXT DEFAULT ''",
-        "ALTER TABLE medications ADD COLUMN active INTEGER DEFAULT 1",
-        "ALTER TABLE health_goals ADD COLUMN goal_type TEXT DEFAULT ''",
-        "ALTER TABLE health_goals ADD COLUMN target REAL DEFAULT 0",
-        "ALTER TABLE health_goals ADD COLUMN current REAL DEFAULT 0",
-        "ALTER TABLE health_goals ADD COLUMN unit TEXT DEFAULT ''",
-        "ALTER TABLE bmi_records ADD COLUMN weight_kg REAL DEFAULT 0",
-        "ALTER TABLE bmi_records ADD COLUMN height_cm REAL DEFAULT 0",
-        "ALTER TABLE bmi_records ADD COLUMN bmi REAL DEFAULT 0",
-        "ALTER TABLE bmi_records ADD COLUMN category TEXT DEFAULT ''",
-    ]
-    for sql in migrations:
-        try:
-            con.execute(sql)
-            con.commit()
-        except sqlite3.OperationalError as e:
-            # Column likely already exists
-            pass
-        except Exception as e:
-            print(f"--- [MIGRATION] Warning: {sql} failed: {e} ---")
-    con.close()
-    print("--- [STARTUP] Database migrations complete. ---")
+        init_db()
+        setup_admin()
+        migrate_db()
+        print("--- [LAZY STARTUP] Database initialization complete. ---")
+    except Exception as e:
+        print(f"--- [LAZY STARTUP] DATABASE ERROR: {e} ---")
 
-migrate_db()
+    _app_ready = True
+    print("--- [LAZY STARTUP] All systems READY. ---")
+
+# Placeholder globals (re-initialized in ensure_startup)
+MODEL = None
+COL_NAMES = []
+
 
 # ================================
 # EMAIL HELPER
@@ -229,6 +123,9 @@ def handle_exception(e):
 # ================================
 @app.before_request
 def track_visits():
+    # Trigger lazy startup on first request
+    ensure_startup()
+    
     # Ignore certain paths
     ignored_paths = ["/api/", "/static/", "/favicon.ico", "LOGO", "png", "jpg", "jpeg"]
     if any(p in request.path for p in ignored_paths):
@@ -934,6 +831,9 @@ def predict():
     result = result_class = prediction_id = None
 
     if request.method == "POST":
+        ensure_startup()
+        if not MODEL:
+            return "Server is still warming up or model failed to load. Please try again in a moment.", 503
         vals = []
         for c in COL_NAMES:
             v = request.form.get(c)
@@ -2881,9 +2781,9 @@ def admin_export_csv():
 
 
 if __name__ == '__main__':
-
+    # When running locally, do startup immediately
+    ensure_startup()
     port = int(os.environ.get('PORT', 5000))
-
     app.run(host='0.0.0.0', port=port)
 
 
