@@ -52,7 +52,48 @@ _FEATURE_MEDIANS = {
     'oldpeak': 0.8, 'slope': 1.0, 'ca': 0.0, 'thal': 2.0
 }
 
+def get_db():
+    con = sqlite3.connect(DB_FILE)
+    con.row_factory = sqlite3.Row
+    return con
+
+def init_db():
+    con = get_db()
+    # Ensure all tables exist
+    con.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, email TEXT, photo TEXT, height_cm REAL, weight_kg REAL, dob TEXT, dark_mode INTEGER DEFAULT 0, last_login TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, timestamp TEXT, prediction INTEGER, risk_level TEXT, age REAL, sex REAL, cp REAL, trestbps REAL, chol REAL, fbs REAL, restecg REAL, thalach REAL, exang REAL, oldpeak REAL, slope REAL, ca REAL, thal REAL)")
+    con.execute("CREATE TABLE IF NOT EXISTS water_intake (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, log_date TEXT, glasses INTEGER)")
+    con.execute("CREATE TABLE IF NOT EXISTS medications (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, med_name TEXT, dosage TEXT, frequency TEXT, active INTEGER DEFAULT 1)")
+    con.execute("CREATE TABLE IF NOT EXISTS health_goals (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, goal_type TEXT, target REAL, current REAL, unit TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, remind_date TEXT, remind_time TEXT, message TEXT, email_sent INTEGER DEFAULT 0)")
+    con.execute("CREATE TABLE IF NOT EXISTS admin_users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS site_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, visit_date TEXT UNIQUE, visit_count INTEGER DEFAULT 0)")
+    con.execute("CREATE TABLE IF NOT EXISTS user_logins (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, login_time TEXT)")
+    con.commit()
+    con.close()
+
+def setup_admin():
+    con = get_db()
+    # Check if admin already exists
+    row = con.execute("SELECT id FROM admin_users WHERE username=?", (ADMIN_USERNAME,)).fetchone()
+    if not row:
+        pwd = generate_password_hash(ADMIN_PASSWORD)
+        con.execute("INSERT INTO admin_users (username, password) VALUES (?, ?)", (ADMIN_USERNAME, pwd))
+        con.commit()
+    con.close()
+
+def migrate_db():
+    con = get_db()
+    # Ensure users table has last_login column
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
+        con.commit()
+    except:
+        pass # Probably already exists
+    con.close()
+
 def manual_predict_proba(features):
+
     # Pure Python Logistic Regression: sigmoid(sum(w*x) + b)
     import math
     z = _MODEL_INTERCEPT
