@@ -87,7 +87,8 @@ def init_db():
         weight_kg REAL DEFAULT 0,
         dob TEXT DEFAULT '',
         phone TEXT DEFAULT '',
-        photo TEXT DEFAULT ''
+        photo TEXT DEFAULT '',
+        last_login TEXT DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS predictions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,11 +212,17 @@ def handle_exception(e):
 # ================================
 @app.before_request
 def track_visits():
-    # Only track GET requests to main HTML routes, not APIs or static files
-    if request.method == "GET" and not request.path.startswith("/api/") and not request.path.startswith("/static/"):
+    # Ignore certain paths
+    ignored_paths = ["/api/", "/static/", "/favicon.ico", "LOGO", "png", "jpg", "jpeg"]
+    if any(p in request.path for p in ignored_paths):
+        return
+
+    # Only track successful GET requests to actual pages
+    if request.method == "GET":
         today = datetime.now().strftime("%Y-%m-%d")
         try:
             con = get_db()
+            # Ensure the table entry for today exists
             row = con.execute("SELECT id, visit_count FROM site_visits WHERE visit_date=?", (today,)).fetchone()
             if row:
                 con.execute("UPDATE site_visits SET visit_count = visit_count + 1 WHERE id=?", (row["id"],))
@@ -224,7 +231,8 @@ def track_visits():
             con.commit()
             con.close()
         except Exception as e:
-            print("Tracking error:", e)
+            # If tracking fails, log the error but don't break the site
+            print(f"--- VISIT TRACKING ERROR ({today}): {str(e)} ---")
 # EMAIL HELPER
 # ================================
 def send_email(to_email, subject, body):
@@ -2716,18 +2724,26 @@ def admin_panel():
 
     # Build visit chart bars
     chart_html = ""
-    max_v = max((v["visit_count"] for v in visit_data), default=1)
-    for v in reversed(list(visit_data)):
-        pct = int(v["visit_count"] / max(max_v, 1) * 100)
-        chart_html += (
-            "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:40px;'>"
-            "<div style='font-size:10px;color:#888;'>" + str(v["visit_count"]) + "</div>"
-            "<div style='background:linear-gradient(180deg,#667eea,#764ba2);border-radius:4px 4px 0 0;"
-            "width:100%;height:" + str(max(pct * 1.2, 4)) + "px;transition:height .3s;'></div>"
-            "<div style='font-size:9px;color:#666;writing-mode:vertical-rl;text-orientation:mixed;'>"
-            + str(v["visit_date"])[5:] + "</div>"
-            "</div>"
-        )
+    if visit_data:
+        max_v = max((v["visit_count"] for v in visit_data), default=1)
+        # Ensure we have a decent height even for small values
+        for v in reversed(list(visit_data)):
+            # Calculate percentage for height
+            h_val = int((v["visit_count"] / max_v) * 120) if max_v > 0 else 0
+            # Ensure a minimum visible height
+            h_val = max(h_val, 15)
+            
+            chart_html += (
+                "<div style='display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;min-width:40px;'>"
+                "<div style='font-size:10px;color:#888;font-weight:bold;'>" + str(v["visit_count"]) + "</div>"
+                "<div style='background:linear-gradient(180deg,#667eea,#764ba2);border-radius:6px 6px 0 0;"
+                "width:100%;height:" + str(h_val) + "px;transition:height 0.4s ease;box-shadow:0 2px 8px rgba(102,126,234,0.3);'></div>"
+                "<div style='font-size:9px;color:#888;writing-mode:vertical-rl;text-orientation:mixed;margin-top:4px;'>"
+                + str(v["visit_date"]) + "</div>"
+                "</div>"
+            )
+    else:
+        chart_html = "<div style='color:#555;padding:20px;text-align:center;width:100%;'>No visit data collected yet. Start browsing the site!</div>"
 
     ADMIN_CSS = """<style>
 *{margin:0;padding:0;box-sizing:border-box;}
