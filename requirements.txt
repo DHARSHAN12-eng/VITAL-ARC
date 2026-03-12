@@ -1,7 +1,5 @@
 flask
 requests
 werkzeug
-scikit-learn
 reportlab
-numpy
 gunicorn

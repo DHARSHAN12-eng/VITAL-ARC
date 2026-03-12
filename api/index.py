@@ -33,89 +33,56 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "..", "heart_app.db")
 SECRET_KEY = "heart_secret_2025"
 app.secret_key = SECRET_KEY
 
+# ================================
+# HEART HEALTH MODEL (Zero-Dependency)
+# ================================
+# Hardcoded weights trained on heart.csv
+_MODEL_COEFS = [-0.00330604, -1.45055627, 0.81263531, -0.01847424, -0.00395406, 
+                0.00868557, 0.41479118, 0.02323316, -0.83812916, -0.53792332, 
+                0.50078151, -0.72864092, -0.84457029]
+_MODEL_INTERCEPT = 2.82347447
+
+COL_NAMES = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 
+             'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal']
+
+# Pre-calculated medians for missing data handling
+_FEATURE_MEDIANS = {
+    'age': 55.0, 'sex': 1.0, 'cp': 1.0, 'trestbps': 130.0, 'chol': 240.0,
+    'fbs': 0.0, 'restecg': 1.0, 'thalach': 153.0, 'exang': 0.0,
+    'oldpeak': 0.8, 'slope': 1.0, 'ca': 0.0, 'thal': 2.0
+}
+
+def manual_predict_proba(features):
+    # Pure Python Logistic Regression: sigmoid(sum(w*x) + b)
+    import math
+    z = _MODEL_INTERCEPT
+    for i in range(len(_MODEL_COEFS)):
+        z += _MODEL_COEFS[i] * float(features[i])
+    # Sigmoid function
+    return 1 / (1 + math.exp(-z))
+
 # Global startup flag
 _app_ready = False
 
 def ensure_startup():
-    global _app_ready, MODEL, COL_NAMES
+    global _app_ready
     if _app_ready:
         return
     
-    print("--- [LAZY STARTUP] Starting heavy initialization... ---")
+    print("--- [LAZY STARTUP] Core initialization... ---")
     
-    # 1. Train Model
+    # Database Checks
     try:
-        import csv
-        import numpy as np
-        from sklearn.linear_model import LogisticRegression
-        import gc
-        
-        print("--- [LAZY STARTUP] Loading data (pure CSV)... ---")
-        data = []
-        with open(DATA_PATH, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                data.append(row)
-        
-        # Extract target and features
-        target = [int(r["target"]) for r in data]
-        # Get feature names (all except target)
-        features_list = [k for k in data[0].keys() if k != "target"]
-        
-        # Convert to numpy and handle missing values
-        X_matrix = []
-        for r in data:
-            row_vals = []
-            for f_name in features_list:
-                val = r[f_name]
-                try: 
-                    row_vals.append(float(val)) if val else row_vals.append(np.nan)
-                except: 
-                    row_vals.append(np.nan)
-            X_matrix.append(row_vals)
-        
-        X_array = np.array(X_matrix)
-        y_array = np.array(target)
-        
-        # Handle NaNs manually (simple mean/median replacement)
-        col_means = np.nanmedian(X_array, axis=0)
-        inds = np.where(np.isnan(X_array))
-        X_array[inds] = np.take(col_means, inds[1])
-        
-        print("--- [LAZY STARTUP] Training model (LogisticRegression)... ---")
-        temp_model = LogisticRegression(max_iter=3000)
-        temp_model.fit(X_array, y_array)
-        
-        MODEL = temp_model
-        COL_NAMES = features_list
-        print("--- [LAZY STARTUP] Model training complete. ---")
-        
-        # Force cleanup
-        del data, X_matrix, X_array, y_array, target
-        gc.collect()
-    except Exception as e:
-
-        print(f"--- [LAZY STARTUP] ERROR TRAINING MODEL: {e} ---")
-        # Keep placeholders if it fails
-        if 'MODEL' not in globals() or MODEL is None:
-            MODEL = None
-            COL_NAMES = []
-
-
-    # 2. Database Checks
-    try:
-        print("--- [LAZY STARTUP] Checking database... ---")
-        if _os.path.exists(DB_FILE):
+        if os.path.exists(DB_FILE):
             _c = None
             try:
-                import sqlite3 as _sq
-                _c = _sq.connect(DB_FILE)
+                _c = sqlite3.connect(DB_FILE)
                 _c.execute("SELECT id FROM users LIMIT 1")
-                print("--- [LAZY STARTUP] DB File exists and is readable. ---")
+                print("--- [LAZY STARTUP] DB OK. ---")
             except Exception as _e:
-                print(f"--- [LAZY STARTUP] DB Check failed: {_e}. Recreating... ---")
+                print(f"--- [LAZY STARTUP] DB Error: {_e}. Recreating... ---")
                 if _c: _c.close()
-                try: _os.remove(DB_FILE)
+                try: os.remove(DB_FILE)
                 except: pass
             finally:
                 if _c: _c.close()
@@ -123,16 +90,13 @@ def ensure_startup():
         init_db()
         setup_admin()
         migrate_db()
-        print("--- [LAZY STARTUP] Database initialization complete. ---")
+        print("--- [LAZY STARTUP] Database READY. ---")
     except Exception as e:
         print(f"--- [LAZY STARTUP] DATABASE ERROR: {e} ---")
 
     _app_ready = True
-    print("--- [LAZY STARTUP] All systems READY. ---")
+    print("--- [LAZY STARTUP] App Ready (Zero-Dependency Model Loaded) ---")
 
-# Placeholder globals (re-initialized in ensure_startup)
-MODEL = None
-COL_NAMES = []
 
 
 # ================================
@@ -870,18 +834,24 @@ def predict():
 
     if request.method == "POST":
         ensure_startup()
-        if not MODEL:
-            return "Server is still warming up or model failed to load. Please try again in a moment.", 503
-        
-        import numpy as np
         vals = []
         for c in COL_NAMES:
             v = request.form.get(c)
-            vals.append(float(v) if v else float(X[c].median()))
-        pred  = int(MODEL.predict(np.array(vals).reshape(1, -1))[0])
-        risk  = "HIGH RISK" if pred == 1 else "LOW RISK"
+            try:
+                # Handle missing with pre-calculated median
+                val = float(v) if v and v.strip() else _FEATURE_MEDIANS.get(c, 0.0)
+            except:
+                val = _FEATURE_MEDIANS.get(c, 0.0)
+            vals.append(val)
+        
+        # Use manual prediction (sigmoid dot product)
+        prob = manual_predict_proba(vals)
+        pred = 1 if prob >= 0.5 else 0
+        risk = "HIGH RISK" if pred == 1 else "LOW RISK"
+        
         result       = risk
         result_class = "high" if pred == 1 else "low"
+        
         con  = get_db()
         ts   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cur  = con.cursor()
@@ -894,6 +864,7 @@ def predict():
         con.commit()
         prediction_id = cur.lastrowid
         con.close()
+
 
     def mk_field(name, label, ftype, ph):
         if name == "sex":
