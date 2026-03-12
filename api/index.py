@@ -60,7 +60,7 @@ def get_db():
 def init_db():
     con = get_db()
     # Ensure all tables exist
-    con.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, email TEXT, photo TEXT, height_cm REAL, weight_kg REAL, dob TEXT, dark_mode INTEGER DEFAULT 0, last_login TEXT)")
+    con.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, email TEXT, phone TEXT, photo TEXT, height_cm REAL, weight_kg REAL, dob TEXT, dark_mode INTEGER DEFAULT 0, last_login TEXT)")
     con.execute("CREATE TABLE IF NOT EXISTS predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, timestamp TEXT, prediction INTEGER, risk_level TEXT, age REAL, sex REAL, cp REAL, trestbps REAL, chol REAL, fbs REAL, restecg REAL, thalach REAL, exang REAL, oldpeak REAL, slope REAL, ca REAL, thal REAL)")
     con.execute("CREATE TABLE IF NOT EXISTS water_intake (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, log_date TEXT, glasses INTEGER)")
     con.execute("CREATE TABLE IF NOT EXISTS medications (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, med_name TEXT, dosage TEXT, frequency TEXT, active INTEGER DEFAULT 1)")
@@ -84,12 +84,14 @@ def setup_admin():
 
 def migrate_db():
     con = get_db()
-    # Ensure users table has last_login column
-    try:
-        con.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
-        con.commit()
-    except:
-        pass # Probably already exists
+    # Ensure users table has required columns
+    cols = ["last_login", "phone"]
+    for col in cols:
+        try:
+            con.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+            con.commit()
+        except:
+            pass # Probably already exists
     con.close()
 
 def manual_predict_proba(features):
