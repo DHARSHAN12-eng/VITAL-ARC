@@ -41,9 +41,7 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "..", "heart_app.db")
 SECRET_KEY = "heart_secret_2025"
 app.secret_key = SECRET_KEY
 
-# ================================
-# LOAD DATA + TRAIN MODEL
-# ================================
+print("--- [STARTUP] Loading data and training model... ---")
 df = pd.read_csv(DATA_PATH)
 X  = df.drop("target", axis=1)
 y  = df["target"]
@@ -51,23 +49,38 @@ X  = X.fillna(X.median())
 MODEL     = LogisticRegression(max_iter=3000)
 MODEL.fit(X, y)
 COL_NAMES = list(X.columns)
+print("--- [STARTUP] Model training complete. ---")
 
 # ================================
 # DATABASE SETUP
 # ================================
 import os as _os
+print("--- [STARTUP] Checking database schema... ---")
 if _os.path.exists(DB_FILE):
+    _c = None
     try:
         import sqlite3 as _sq
         _c = _sq.connect(DB_FILE)
+        # Check for all required columns to avoid migration issues
         _c.execute("SELECT email_sent, remind_date, remind_time, message FROM reminders LIMIT 1")
         _c.execute("SELECT email, dark_mode, height_cm, weight_kg, dob, phone FROM users LIMIT 1")
-        _c.close()
+        print("--- [STARTUP] Database schema OK. ---")
     except Exception as _e:
-        print("Old database detected, recreating with new schema:", _e)
-        _c.close()
-        _os.remove(DB_FILE)
-        print("Old heart_app.db deleted. New one will be created now.")
+        print(f"--- [STARTUP] Old/invalid database detected: {_e} ---")
+        if _c: 
+            try: _c.close()
+            except: pass
+        try:
+            _os.remove(DB_FILE)
+            print("--- [STARTUP] Old heart_app.db deleted. ---")
+        except Exception as _re:
+            print(f"--- [STARTUP] Failed to remove old DB: {_re} ---")
+    finally:
+        if _c:
+            try: _c.close()
+            except: pass
+else:
+    print("--- [STARTUP] No database file found. It will be created. ---")
 
 def get_db():
     con = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -188,9 +201,13 @@ def migrate_db():
         try:
             con.execute(sql)
             con.commit()
-        except Exception:
+        except sqlite3.OperationalError as e:
+            # Column likely already exists
             pass
+        except Exception as e:
+            print(f"--- [MIGRATION] Warning: {sql} failed: {e} ---")
     con.close()
+    print("--- [STARTUP] Database migrations complete. ---")
 
 migrate_db()
 
